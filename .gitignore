@@ -1,0 +1,5 @@
+.cache
+.vscode
+intermediate/*.o
+.a
+compile_commands.json
