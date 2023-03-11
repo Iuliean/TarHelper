@@ -85,16 +85,18 @@ void TarMaker::addFile(const std::string& path, const std::string& pathInArchive
 
     if(isSymlink(path))
     {
-        s_log->info("Writing Symlink");
         std::string link;
         link = readsymlink(path);
+        
 		archive_entry_set_filetype(entry, AE_IFLNK);
 		archive_entry_set_symlink(entry, link.c_str());
-    }
-    else
-    {
         archive_entry_copy_stat(entry, &attributes);
+        archive_write_header(m_pArchiveDescrptor, entry);
+        archive_entry_free(entry);
+        return;
     }
+    
+    archive_entry_copy_stat(entry, &attributes);
 
     archive_write_header(m_pArchiveDescrptor, entry);
     try
@@ -106,6 +108,7 @@ void TarMaker::addFile(const std::string& path, const std::string& pathInArchive
         throw;
     } 
     archive_entry_free(entry);
+
 }
 
 bool TarMaker::addDirectory(const std::string& path, const std::string& pathInArchive, size_t depth)
@@ -222,7 +225,7 @@ void TarMaker::openArchive()
     m_pFd = fopen(m_path.c_str(), "w");
     if (m_pFd == NULL)
     {
-        throw archive_exception("Cannot open file " + m_path + " reason: " + std::to_string(errno));
+        throw archive_exception("Cannot open file " + m_path + " reason: " + GET_ERRNO_STR());
     }
 
     if(archive_write_open_FILE(m_pArchiveDescrptor, m_pFd) != ARCHIVE_OK)
@@ -245,10 +248,10 @@ void TarMaker::writeFileToArchive(const std::string& path)
     static const size_t BUFF_SIZE = 1024;
     char buffer[BUFF_SIZE] = {};
 
-    FILE* file = fopen(path.c_str(), "rw");
+    FILE* file = fopen(path.c_str(), "r");
     if (file == NULL)
     {
-        throw archive_exception("Cannot open file " + path + " reason: " + std::to_string(errno));
+        throw archive_exception("Cannot open file " + path + " reason: " + GET_ERRNO_STR());
     }
 
     while(true)
@@ -262,7 +265,7 @@ void TarMaker::writeFileToArchive(const std::string& path)
         if(ferror(file))
         {
             fclose(file);
-            throw archive_exception("Failed to read from file " + path + " : " + std::to_string(errno));
+            throw archive_exception("Failed to read from file " + path + " : " + GET_ERRNO_STR());
         }
     }
     fclose(file);
