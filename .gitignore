@@ -1,5 +1,8 @@
 .cache
 .vscode
 intermediate/*.o
-.a
+*.a
+extract
+compress
 compile_commands.json
+src.tar.gz
