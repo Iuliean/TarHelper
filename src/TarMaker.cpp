@@ -85,8 +85,13 @@ void TarMaker::addFile(const std::string& path, const std::string& pathInArchive
     }
 
     archive_entry_copy_stat(entry, &attributes);
-    if(!(m_options & TarOptions::PreservePermissions))
-        archive_entry_set_perm(entry, 0777);
+    if(!(m_options & TarOptions::PreserveFilePermissions))
+    {
+        if(attributes.st_mode & S_IXUSR)
+            archive_entry_set_perm(entry, 0777);
+        else
+            archive_entry_set_perm(entry, 0666);
+    }
     archive_write_header(m_pArchiveDescrptor, entry);
     try
     {
@@ -100,7 +105,7 @@ void TarMaker::addFile(const std::string& path, const std::string& pathInArchive
     archive_entry_free(entry);
 }
 
-bool TarMaker::addDirectory(const std::string& path, const std::string& pathInArchive, size_t depth)
+bool TarMaker::addDirectory(std::string path, const std::string& pathInArchive, size_t depth)
 {
     if(!isDir(path))
         return false;
@@ -119,7 +124,10 @@ bool TarMaker::addDirectory(const std::string& path, const std::string& pathInAr
     if(pathInArchive.back() != '/' && pathInArchive != "")
         archiveLocation.push_back('/');
     if(path.back() != '/')
+    {
         diskLocation.push_back('/');
+        path.push_back('/');
+    }
     
     try
     {
@@ -160,10 +168,13 @@ bool TarMaker::addDirectory(const std::string& path, const std::string& pathInAr
                 destination.append(
                     diskLocation.substr(path.length())
                 );
-                s_log->info("Adding folder {} to path", destination);
+                struct stat directoryAttributes;
+                stat(diskLocation.c_str(), &directoryAttributes);
+                archive_entry_copy_stat(entry, &directoryAttributes);
                 archive_entry_set_pathname(entry, destination.c_str());
                 archive_entry_set_filetype(entry, AE_IFDIR);
-                archive_entry_set_perm(entry, 0777);
+                if(!(m_options & TarOptions::PreserveDirectoryPermissions))
+                    archive_entry_set_perm(entry, 0755);
                 archive_write_header(m_pArchiveDescrptor, entry);
                 archive_entry_free(entry);
                 continue;

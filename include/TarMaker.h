@@ -23,7 +23,8 @@ enum TarOptions: int
 {
     NONE= 0b0,
     DereferenceSymlink =0b01,
-    PreservePermissions=0b10
+    PreserveFilePermissions=0b10,
+    PreserveDirectoryPermissions=0b100,
 };
 
 class CompressionAlgorithm
@@ -49,7 +50,7 @@ public:
     void addFile(const std::string& path, const std::string& pathInArchive);
 
     bool addDirectory(const std::string& path, size_t depth = SIZE_MAX);
-    bool addDirectory(const std::string&, const std::string& pathInArchive, size_t depth = SIZE_MAX);
+    bool addDirectory(std::string path, const std::string& pathInArchive, size_t depth = SIZE_MAX);
 
     void openArchive();
     void closeArchive();
