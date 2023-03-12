@@ -1,7 +1,11 @@
+#include <archive.h>
 #include <archive_entry.h>
+#include <exception>
+#include <fcntl.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <dirent.h>
 #include <stack>
+#include <type_traits>
 
 
 #include "TarMaker.h"
@@ -32,20 +36,6 @@ static std::string readsymlink(const std::string& path)
 	return "";
 }
 
-static bool isDir(const std::string& path)
-{   
-    struct stat attributes;
-    lstat(path.c_str(), &attributes);
-    return (attributes.st_mode & S_IFMT) == S_IFDIR;
-}
-
-static bool isSymlink(const std::string& path)
-{
-    struct stat attributes;
-    lstat(path.c_str(), &attributes);
-    return (attributes.st_mode & S_IFMT) == S_IFLNK;
-}
-
 CompressionAlgorithm::CompressionAlgorithm(CompressionType type)
     : m_algorithm(ALGORITHM_IMPLEMENTATION[type])
 {
@@ -55,9 +45,13 @@ CompressionAlgorithm::~CompressionAlgorithm()
 {
 }
 
+TarMaker::TarMaker(const std::string& path)
+    : TarMaker(path, CompressionType::GZIP, TarOptions::NONE)
+{
+}
 
-TarMaker::TarMaker(const std::string& path, CompressionType alg)
-    : m_path(path), m_algorithm(alg)
+TarMaker::TarMaker(const std::string& path, CompressionType alg, int options)
+    : m_path(path), m_algorithm(alg), m_options((TarOptions)options)
 {
     try 
     {
@@ -74,30 +68,25 @@ TarMaker::~TarMaker()
 }
 
 void TarMaker::addFile(const std::string& path, const std::string& pathInArchive)
-{   
+{
     struct stat attributes;
-    lstat(path.c_str(), &attributes);
+    getFileAttibutes(path, &attributes);
 
     archive_entry* entry = archive_entry_new();
     archive_entry_set_pathname(entry, pathInArchive.c_str());
-    if(isDir(path))
-        throw archive_exception(path + " is not File");
 
     if(isSymlink(path))
     {
-        std::string link;
-        link = readsymlink(path);
-        
-		archive_entry_set_filetype(entry, AE_IFLNK);
-		archive_entry_set_symlink(entry, link.c_str());
-        archive_entry_copy_stat(entry, &attributes);
+        std::string link = readsymlink(path);
+        archive_entry_set_filetype(entry, AE_IFLNK);
+        archive_entry_set_symlink(entry, link.c_str());
         archive_write_header(m_pArchiveDescrptor, entry);
-        archive_entry_free(entry);
         return;
     }
-    
-    archive_entry_copy_stat(entry, &attributes);
 
+    archive_entry_copy_stat(entry, &attributes);
+    if(!(m_options & TarOptions::PreservePermissions))
+        archive_entry_set_perm(entry, 0777);
     archive_write_header(m_pArchiveDescrptor, entry);
     try
     {
@@ -106,9 +95,9 @@ void TarMaker::addFile(const std::string& path, const std::string& pathInArchive
     catch(const std::exception& e)
     {
         throw;
-    } 
-    archive_entry_free(entry);
+    }
 
+    archive_entry_free(entry);
 }
 
 bool TarMaker::addDirectory(const std::string& path, const std::string& pathInArchive, size_t depth)
@@ -164,10 +153,27 @@ bool TarMaker::addDirectory(const std::string& path, const std::string& pathInAr
             }
 
             std::string filename = entry->d_name;
-            if(filename == "." || filename == "..")
+            if(filename == ".")
+            {
+                archive_entry* entry = archive_entry_new();
+                std::string destination = archiveLocation;
+                destination.append(
+                    diskLocation.substr(path.length())
+                );
+                s_log->info("Adding folder {} to path", destination);
+                archive_entry_set_pathname(entry, destination.c_str());
+                archive_entry_set_filetype(entry, AE_IFDIR);
+                archive_entry_set_perm(entry, 0777);
+                archive_write_header(m_pArchiveDescrptor, entry);
+                archive_entry_free(entry);
                 continue;
+            }
+            if(filename == "..")
+            {
+                continue;
+            }
 
-            if(entry->d_type == DT_DIR)
+            if(isDir(diskLocation + filename))
             {
                 //if maximum depth is reached do not traverse next directory;
                 if(!depth)
@@ -186,7 +192,6 @@ bool TarMaker::addDirectory(const std::string& path, const std::string& pathInAr
                     throw archive_exception("Could not open dir: " + GET_ERRNO_STR());
                 }
                 else
-                
                 depth--;
             }
             else
@@ -269,4 +274,22 @@ void TarMaker::writeFileToArchive(const std::string& path)
         }
     }
     fclose(file);
+}
+
+void TarMaker::getFileAttibutes(const std::string& path, struct stat* attributes)
+{
+    if(m_options & TarOptions::DereferenceSymlink)
+        stat(path.c_str(), attributes);
+    else
+        lstat(path.c_str(), attributes);
+}
+
+bool TarMaker::checkFileTypeAttribute(const std::string& path, int attribute)
+{
+    struct stat attributes;
+    if(m_options & TarOptions::DereferenceSymlink)
+        stat(path.c_str(), &attributes);
+    else
+        lstat(path.c_str(), &attributes);
+    return (attributes.st_mode & S_IFMT) == attribute;
 }

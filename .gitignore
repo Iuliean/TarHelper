@@ -2,6 +2,7 @@
 .vscode
 intermediate/*.o
 out
+out/src
 *.a
 extract
 compress
